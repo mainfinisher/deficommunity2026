@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DefiDaiDao - Registration</title>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --primary: #3b82f6; --success: #10b981; --text: #f1f5f9; }
+        body { background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .card { background-color: var(--card); padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 400px; text-align: center; }
+        h2 { margin-bottom: 1.5rem; color: #fff; letter-spacing: 1px; }
+        .input-group { text-align: left; margin-bottom: 1.5rem; }
+        label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #94a3b8; }
+        input { width: 100%; padding: 12px; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 8px; box-sizing: border-box; outline: none; transition: 0.3s; }
+        input:focus { border-color: var(--primary); }
+        button { width: 100%; padding: 14px; margin-top: 1rem; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; font-size: 1rem; transition: 0.3s; opacity: 0.6; }
+        .btn-active { opacity: 1 !important; transform: translateY(-2px); }
+        #connectBtn { background-color: var(--primary); color: white; opacity: 1; }
+        #approveBtn { background-color: #475569; color: #cbd5e1; }
+        #registerBtn { background-color: #475569; color: #cbd5e1; }
+        .success-btn { background-color: var(--success) !important; color: white !important; }
+        #status { margin-top: 1rem; font-size: 0.85rem; color: #94a3b8; line-height: 1.6; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>DefiDaiDao</h2>
+    
+    <button id="connectBtn">1. Connect Wallet</button>
+    
+    <div class="input-group" style="margin-top: 20px;">
+        <label>Sponsor Address (Upline):</label>
+        <input type="text" id="uplineInput" placeholder="0x...">
+    </div>
+
+    <button id="approveBtn" disabled>2. Approve $1 (DAI)</button>
+    <button id="registerBtn" disabled>3. Final Registration</button>
+
+    <p id="status">Status: Waiting for wallet connection...</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+<script>
+    const CONTRACT_ADDRESS = "0x84a47446f7a563Ce899aE991127b20FB8E20cEca"; 
+    const DAI_ADDRESS = "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3"; 
+    const BSC_CHAIN_ID = '0x38'; // Hex for 56 (BSC Mainnet)
+
+    let signer;
+    let tokenContract;
+    let mainContract;
+
+    const connectBtn = document.getElementById('connectBtn');
+    const approveBtn = document.getElementById('approveBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const statusText = document.getElementById('status');
+    const uplineInput = document.getElementById('uplineInput');
+
+    // Function to ensure user is on BSC
+    async function switchNetwork() {
+        try {
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: BSC_CHAIN_ID }],
+            });
+        } catch (error) {
+            if (error.code === 4902) {
+                await window.ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                        chainId: BSC_CHAIN_ID,
+                        chainName: 'Binance Smart Chain',
+                        nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+                        rpcUrls: ['https://bsc-dataseed.binance.org/'],
+                        blockExplorerUrls: ['https://bscscan.com/']
+                    }],
+                });
+            }
+        }
+    }
+
+    connectBtn.onclick = async () => {
+        if (window.ethereum) {
+            try {
+                await switchNetwork();
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                signer = await provider.getSigner();
+                const addr = await signer.getAddress();
+                
+                statusText.innerText = "Connected to BSC: " + addr.substring(0,6) + "...";
+                connectBtn.innerText = "Connected ✅";
+                connectBtn.style.backgroundColor = "#1e293b";
+                
+                approveBtn.disabled = false;
+                approveBtn.classList.add('btn-active');
+                
+                tokenContract = new ethers.Contract(DAI_ADDRESS, ["function approve(address s, uint256 a) public returns (bool)"], signer);
+                mainContract = new ethers.Contract(CONTRACT_ADDRESS, ["function step_2_become_owner(address _target) external"], signer);
+            } catch (err) { statusText.innerText = "Connection Failed!"; }
+        } else { alert("Please use Trust Wallet or MetaMask browser!"); }
+    };
+
+    approveBtn.onclick = async () => {
+        try {
+            await switchNetwork();
+            statusText.innerText = "Requesting DAI Approval...";
+            const amount = ethers.parseUnits("1", 18); 
+            const tx = await tokenContract.approve(CONTRACT_ADDRESS, amount);
+            
+            statusText.innerText = "Waiting for confirmation...";
+            await tx.wait();
+            
+            statusText.innerText = "Approved! Now click Register.";
+            approveBtn.classList.remove('btn-active');
+            approveBtn.classList.add('success-btn');
+            approveBtn.innerText = "Approved ✅";
+            approveBtn.disabled = true;
+            
+            registerBtn.disabled = false;
+            registerBtn.classList.add('btn-active');
+        } catch (err) { 
+            statusText.innerText = "Approve Failed!";
+            console.error(err);
+        }
+    };
+
+    registerBtn.onclick = async () => {
+        await switchNetwork();
+        const upline = uplineInput.value.trim();
+        if (!ethers.isAddress(upline)) {
+            alert("Invalid Sponsor Address!");
+            return;
+        }
+
+        try {
+            statusText.innerText = "Registering with DefiDaiDao...";
+            const tx = await mainContract.step_2_become_owner(upline);
+            await tx.wait();
+            
+            statusText.innerText = "Success! Registration Complete.";
+            registerBtn.classList.remove('btn-active');
+            registerBtn.classList.add('success-btn');
+            registerBtn.innerText = "Registered ✅";
+        } catch (err) {
+            statusText.innerText = "Registration failed! Check your BNB/DAI balance.";
+            console.error(err);
+        }
+    };
+</script>
+</body>
+</html>
